@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Miniature Photoshoot Planner</title>
+<style>
+  :root{
+    --bg:#111317; --card:#1a1d23; --line:#2a2e37; --text:#e8eaed; --muted:#9aa0aa;
+    --accent:#ff6b35; --ok:#3ddc84;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.4}
+  .wrap{max-width:760px;margin:0 auto;padding:20px 16px 80px}
+  h1{font-size:1.5rem;margin:0 0 4px}
+  .sub{color:var(--muted);margin:0 0 20px;font-size:.95rem}
+  .add{display:flex;gap:8px;margin-bottom:12px}
+  input[type=text]{flex:1;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:1rem}
+  input[type=text]:focus{outline:2px solid var(--accent);border-color:transparent}
+  button{cursor:pointer;border:0;border-radius:10px;padding:12px 16px;font-size:.95rem;font-weight:600;background:var(--accent);color:#fff}
+  button.ghost{background:transparent;border:1px solid var(--line);color:var(--text);font-weight:500}
+  button.small{padding:7px 10px;font-size:.8rem}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:20px;color:var(--muted);font-size:.9rem}
+  .toolbar .spacer{flex:1}
+  .car{background:var(--card);border:1px solid var(--line);border-radius:14px;margin-bottom:14px;overflow:hidden}
+  .car.done{border-color:var(--ok)}
+  .car-head{display:flex;align-items:center;gap:10px;padding:14px;cursor:pointer}
+  .car-head h2{flex:1;margin:0;font-size:1.1rem}
+  .count{color:var(--muted);font-size:.85rem;white-space:nowrap}
+  .car.done .count{color:var(--ok)}
+  .bar{height:4px;background:var(--line)}
+  .bar>div{height:100%;background:var(--accent);transition:width .2s}
+  .car.done .bar>div{background:var(--ok)}
+  .body{padding:6px 14px 14px;display:none}
+  .car.open .body{display:block}
+  .section{margin-top:14px}
+  .section h3{margin:0 0 6px;font-size:.8rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+  label.shot{display:flex;gap:10px;align-items:flex-start;padding:8px 6px;border-radius:8px;cursor:pointer}
+  label.shot:hover{background:#20242b}
+  label.shot input{margin-top:3px;width:18px;height:18px;accent-color:var(--accent);flex:none}
+  label.shot .t{flex:1}
+  label.shot .hint{display:block;color:var(--muted);font-size:.82rem}
+  label.shot.checked .name{text-decoration:line-through;color:var(--muted)}
+  .actions{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
+  .empty{text-align:center;color:var(--muted);padding:40px 10px;border:1px dashed var(--line);border-radius:14px}
+  .chev{transition:transform .2s;color:var(--muted)}
+  .car.open .chev{transform:rotate(90deg)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Miniature Photoshoot Planner</h1>
+  <p class="sub">Add a car, shoot it, tick the shots. Everything saves automatically in this browser.</p>
+
+  <form class="add" id="addForm">
+    <input type="text" id="carName" placeholder="Car name (e.g. Ford Mustang GT)" autocomplete="off" required>
+    <button type="submit">Add car</button>
+  </form>
+
+  <div class="toolbar">
+    <span id="summary"></span>
+    <span class="spacer"></span>
+    <button class="ghost small" id="exportBtn" type="button">Export backup</button>
+    <button class="ghost small" id="importBtn" type="button">Import backup</button>
+    <input type="file" id="importFile" accept="application/json" hidden>
+  </div>
+
+  <div id="list"></div>
+</div>
+
+<script>
+/* ------------------------------------------------------------------
+   EDIT YOUR SHOT LIST HERE.
+   Each shot needs a unique "id" (never reuse an id for a different shot).
+   You can change names/hints, add new shots, or remove ones you don't want.
+------------------------------------------------------------------- */
+const SHOT_TEMPLATE = [
+  { section: "Core shots", shots: [
+    { id: "hero",      name: "Hero shot (40-50° high front 3/4)", hint: "Main listing image" },
+    { id: "opp34",     name: "Opposite 3/4 (other side or rear)" },
+    { id: "side",      name: "Side profile, level at wheel height" },
+    { id: "front",     name: "Front, straight on" },
+    { id: "rear",      name: "Rear, straight on" },
+    { id: "top",       name: "Top-down (roof view)" },
+  ]},
+  { section: "Detail shots", shots: [
+    { id: "badge",     name: "Badge / logo close-up" },
+    { id: "wheel",     name: "Wheel and tire close-up" },
+    { id: "lights",    name: "Headlights / grille close-up" },
+    { id: "interior",  name: "Interior through the windshield" },
+    { id: "opening",   name: "Doors / hood / trunk open", hint: "Only if this model has opening parts" },
+    { id: "base",      name: "Underside / base", hint: "Shows model name, scale, Burago stamp" },
+  ]},
+  { section: "Honesty & context", shots: [
+    { id: "flaws",     name: "Any flaws up close", hint: "Scratches, chips, paint wear. Skip if none" },
+    { id: "box",       name: "Box / packaging", hint: "Skip if it has none" },
+    { id: "scale",     name: "Scale reference (coin or hand)" },
+  ]},
+  { section: "Design / post-production", shots: [
+    { id: "cutout",    name: "Hero shot background cleaned / cut out" },
+    { id: "logo",      name: "Car logo placed behind / next to the car" },
+    { id: "floorname", name: "Name on the floor added" },
+    { id: "export",    name: "Final images exported" },
+  ]},
+];
+
+/* ---------------- app code (no need to edit below) ---------------- */
+const KEY = "photoshoot-planner-v1";
+let cars = [];
+let openIds = new Set();
+
+function load(){
+  try{
+    const raw = localStorage.getItem(KEY);
+    cars = raw ? JSON.parse(raw) : [];
+    if(!Array.isArray(cars)) cars = [];
+  }catch(e){ cars = []; }
+}
+function save(){
+  try{ localStorage.setItem(KEY, JSON.stringify(cars)); }
+  catch(e){ alert("Could not save in this browser. Use 'Export backup' to keep your data."); }
+}
+
+const allShots = () => SHOT_TEMPLATE.flatMap(s => s.shots);
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+
+function progress(car){
+  const total = allShots().length;
+  const done = allShots().filter(s => car.checked && car.checked[s.id]).length;
+  return {done, total};
+}
+
+function esc(s){ return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function render(){
+  const list = document.getElementById("list");
+  if(!cars.length){
+    list.innerHTML = '<div class="empty">No cars yet. Type a name above and press "Add car".</div>';
+    document.getElementById("summary").textContent = "";
+    return;
+  }
+  const finished = cars.filter(c => { const p = progress(c); return p.done === p.total; }).length;
+  document.getElementById("summary").textContent = `${cars.length} cars, ${finished} fully done`;
+
+  list.innerHTML = cars.map(car => {
+    const p = progress(car);
+    const isDone = p.done === p.total;
+    const pct = Math.round(p.done / p.total * 100);
+    const sections = SHOT_TEMPLATE.map(sec => `
+      <div class="section">
+        <h3>${esc(sec.section)}</h3>
+        ${sec.shots.map(s => {
+          const c = car.checked && car.checked[s.id];
+          return `<label class="shot ${c ? "checked" : ""}">
+            <input type="checkbox" data-car="${car.id}" data-shot="${s.id}" ${c ? "checked" : ""}>
+            <span class="t"><span class="name">${esc(s.name)}</span>${s.hint ? `<span class="hint">${esc(s.hint)}</span>` : ""}</span>
+          </label>`;
+        }).join("")}
+      </div>`).join("");
+    return `
+      <div class="car ${isDone ? "done" : ""} ${openIds.has(car.id) ? "open" : ""}" data-id="${car.id}">
+        <div class="car-head" data-toggle="${car.id}">
+          <span class="chev">▶</span>
+          <h2>${esc(car.name)}</h2>
+          <span class="count">${p.done}/${p.total}${isDone ? " ✓" : ""}</span>
+        </div>
+        <div class="bar"><div style="width:${pct}%"></div></div>
+        <div class="body">
+          ${sections}
+          <div class="actions">
+            <button class="ghost small" data-all="${car.id}">Tick all</button>
+            <button class="ghost small" data-none="${car.id}">Clear all</button>
+            <button class="ghost small" data-rename="${car.id}">Rename</button>
+            <button class="ghost small" data-del="${car.id}">Delete car</button>
+          </div>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+document.getElementById("addForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const input = document.getElementById("carName");
+  const name = input.value.trim();
+  if(!name) return;
+  const car = { id: uid(), name, checked: {}, created: Date.now() };
+  cars.push(car);
+  openIds.add(car.id);
+  save(); render();
+  input.value = "";
+  input.focus();
+});
+
+document.getElementById("list").addEventListener("click", e => {
+  const t = e.target;
+  const toggle = t.closest("[data-toggle]");
+  if(t.matches("input[type=checkbox]")) return;
+  if(t.dataset.all){
+    const car = cars.find(c => c.id === t.dataset.all);
+    car.checked = {}; allShots().forEach(s => car.checked[s.id] = true);
+    save(); render(); return;
+  }
+  if(t.dataset.none){
+    const car = cars.find(c => c.id === t.dataset.none);
+    car.checked = {}; save(); render(); return;
+  }
+  if(t.dataset.rename){
+    const car = cars.find(c => c.id === t.dataset.rename);
+    const n = prompt("New name:", car.name);
+    if(n && n.trim()){ car.name = n.trim(); save(); render(); }
+    return;
+  }
+  if(t.dataset.del){
+    const car = cars.find(c => c.id === t.dataset.del);
+    if(confirm(`Delete "${car.name}" and its progress?`)){
+      cars = cars.filter(c => c.id !== car.id); save(); render();
+    }
+    return;
+  }
+  if(toggle){
+    const id = toggle.dataset.toggle;
+    openIds.has(id) ? openIds.delete(id) : openIds.add(id);
+    render();
+  }
+});
+
+document.getElementById("list").addEventListener("change", e => {
+  const t = e.target;
+  if(!t.matches("input[type=checkbox]")) return;
+  const car = cars.find(c => c.id === t.dataset.car);
+  car.checked = car.checked || {};
+  if(t.checked) car.checked[t.dataset.shot] = true;
+  else delete car.checked[t.dataset.shot];
+  save(); render();
+});
+
+document.getElementById("exportBtn").addEventListener("click", () => {
+  const blob = new Blob([JSON.stringify(cars, null, 2)], {type:"application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "photoshoot-backup.json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+document.getElementById("importBtn").addEventListener("click", () => document.getElementById("importFile").click());
+document.getElementById("importFile").addEventListener("change", e => {
+  const file = e.target.files[0];
+  if(!file) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try{
+      const data = JSON.parse(r.result);
+      if(!Array.isArray(data)) throw new Error("bad");
+      if(confirm("This replaces the cars currently in this browser. Continue?")){
+        cars = data; save(); render();
+      }
+    }catch(err){ alert("That file doesn't look like a valid backup."); }
+  };
+  r.readAsText(file);
+  e.target.value = "";
+});
+
+load(); render();
+</script>
+</body>
+</html>
